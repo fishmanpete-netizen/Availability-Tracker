@@ -147,12 +147,11 @@
   </main>
 
   <script>
-    const GOOGLE_SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwBV4ebIgZM672KmVdXky_1LIil99mDhg2LJ420LCM9VcxdjbYeuB8t6blS5BPLma06eQ/exec';
+    // Replace this URL string with your Google Apps Script Web App URL once deployed!
+    const GOOGLE_SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec';
+    
     const TIME_SLOTS = [
       { id: 'morning', label: 'Morning', sub: '8am - 12pm' },
       { id: 'midday', label: 'Mid-Day', sub: '12pm - 4pm' },
       { id: 'evening', label: 'Late Afternoon / Evening', sub: '4pm - 8pm' }
     ];
-
-    const PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
-    const OWNER_PIN = '1235';
