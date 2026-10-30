@@ -141,8 +141,7 @@
   </main>
 
   <script>
-    // Paste your Google Apps Script Web App URL here!
-    const GOOGLE_SHEET_WEBHOOK_URL = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
+    const GOOGLE_SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwBV4ebIgZM672KmVdXky_1LIil99mDhg2LJ420LCM9VcxdjbYeuB8t6blS5BPLma06eQ/exec';
 
     const TIME_SLOTS = [
       { id: 'morning', label: 'Morning', sub: '8am - 12pm' },
@@ -179,7 +178,7 @@
     }
 
     async function loadCentralSettings() {
-      if (!GOOGLE_SHEET_WEBHOOK_URL || GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) return;
+      if (!GOOGLE_SHEET_WEBHOOK_URL) return;
       try {
         const res = await fetch(`${GOOGLE_SHEET_WEBHOOK_URL}?group=${encodeURIComponent(currentGroupId)}`);
         const data = await res.json();
@@ -321,7 +320,7 @@
       });
       saveStore();
 
-      if (GOOGLE_SHEET_WEBHOOK_URL && !GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) {
+      if (GOOGLE_SHEET_WEBHOOK_URL) {
         const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
         dates.forEach(d => {
           TIME_SLOTS.forEach(slot => {
@@ -330,7 +329,7 @@
               fetch(GOOGLE_SHEET_WEBHOOK_URL, {
                 method: 'POST',
                 mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'text/plain' },
                 body: JSON.stringify({
                   group: currentGroupId,
                   title: store.settings.title,
@@ -448,11 +447,11 @@
       store.settings.endDate = end;
       saveStore();
 
-      if (GOOGLE_SHEET_WEBHOOK_URL && !GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) {
+      if (GOOGLE_SHEET_WEBHOOK_URL) {
         fetch(GOOGLE_SHEET_WEBHOOK_URL, {
           method: 'POST',
           mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({
             action: 'save_settings',
             group: currentGroupId,
