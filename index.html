@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Family Availability & Schedule Tracker</title>
+  <title>Availability & Schedule Tracker</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800 font-sans pb-12">
@@ -122,36 +122,345 @@
       <!-- Family Badges Legend -->
       <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
         <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Respondents & Color Assignment</h3>
-        <div id="family-legend" class="flex flex-wrap gap-3">
-          <!-- JS inserted -->
-        </div>
+        <div id="family-legend" class="flex flex-wrap gap-3"></div>
       </div>
 
       <!-- Master Calendar Grid -->
       <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
         <h3 class="text-base font-bold text-slate-900 mb-4">Master Calendar Grid</h3>
-        <div id="owner-grid-container">
-          <!-- JS inserted -->
-        </div>
+        <div id="owner-grid-container"></div>
       </div>
 
       <!-- Notes Summary -->
       <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <h3 class="text-base font-bold text-slate-900 mb-4">Submitted Slot Notes</h3>
-        <div id="notes-container" class="space-y-3">
-          <!-- JS inserted -->
-        </div>
+        <div id="notes-container" class="space-y-3"></div>
       </div>
     </section>
 
   </main>
 
   <script>
-    // Replace this URL string with your Google Apps Script Web App URL once deployed!
-    const GOOGLE_SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec';
-    
+    const GOOGLE_SHEET_WEBHOOK_URL = ''; // Paste Apps Script Web App URL here when ready
     const TIME_SLOTS = [
       { id: 'morning', label: 'Morning', sub: '8am - 12pm' },
       { id: 'midday', label: 'Mid-Day', sub: '12pm - 4pm' },
       { id: 'evening', label: 'Late Afternoon / Evening', sub: '4pm - 8pm' }
     ];
+
+    const PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
+    const OWNER_PIN = '1235';
+
+    // Parse URL Group Parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentGroupId = (urlParams.get('group') || 'Default').trim();
+    const STORAGE_KEY = `availability_store_v3_${currentGroupId}`;
+
+    // Safe Store Initialization
+    let store = {
+      settings: {
+        title: `${currentGroupId} Gathering Schedule`,
+        startDate: '2026-10-20',
+        endDate: '2026-10-24'
+      },
+      responses: []
+    };
+
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        store = JSON.parse(cached);
+      }
+    } catch(e) {
+      console.warn("Storage parse error, fallback to default", e);
+    }
+
+    let userSelections = {};
+    let isOwnerAuthenticated = false;
+
+    function saveStore() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+      } catch(e) {
+        console.error("Save error", e);
+      }
+    }
+
+    function handleOwnerTabClick() {
+      if (isOwnerAuthenticated) {
+        switchTab('owner');
+      } else {
+        const pin = prompt('Enter Owner Passcode to access the dashboard:');
+        if (pin === OWNER_PIN) {
+          isOwnerAuthenticated = true;
+          switchTab('owner');
+        } else if (pin !== null) {
+          alert('Incorrect passcode.');
+        }
+      }
+    }
+
+    function lockDashboard() {
+      isOwnerAuthenticated = false;
+      switchTab('recipient');
+      alert('Owner session locked.');
+    }
+
+    function switchTab(tab) {
+      document.getElementById('view-recipient').classList.toggle('hidden', tab !== 'recipient');
+      document.getElementById('view-owner').classList.toggle('hidden', tab !== 'owner');
+      
+      const btnRec = document.getElementById('btn-recipient');
+      const btnOwn = document.getElementById('btn-owner');
+
+      if (tab === 'recipient') {
+        btnRec.className = "px-4 py-2 rounded-lg transition-all shadow bg-white text-indigo-900 font-semibold";
+        btnOwn.className = "px-4 py-2 rounded-lg transition-all text-indigo-200 hover:text-white flex items-center gap-1.5";
+        renderRecipientView();
+      } else {
+        btnOwn.className = "px-4 py-2 rounded-lg transition-all shadow bg-white text-indigo-900 font-semibold flex items-center gap-1.5";
+        btnRec.className = "px-4 py-2 rounded-lg transition-all text-indigo-200 hover:text-white";
+        renderOwnerDashboard();
+      }
+    }
+
+    function getDatesInRange(startDateStr, endDateStr) {
+      const dates = [];
+      try {
+        let curr = new Date(startDateStr + 'T00:00:00');
+        const end = new Date(endDateStr + 'T00:00:00');
+        while (curr <= end) {
+          dates.push(curr.toISOString().split('T')[0]);
+          curr.setDate(curr.getDate() + 1);
+        }
+      } catch(e) {
+        console.error("Date parse error", e);
+      }
+      return dates.length ? dates : [startDateStr];
+    }
+
+    function renderRecipientView() {
+      document.getElementById('header-title').innerText = store.settings.title;
+      document.getElementById('group-badge').innerText = `Group: ${currentGroupId}`;
+      document.getElementById('rec-event-heading').innerText = `Submit Availability for ${store.settings.title}`;
+      
+      const startDateObj = new Date(store.settings.startDate + 'T00:00:00');
+      const endDateObj = new Date(store.settings.endDate + 'T00:00:00');
+      const rangeText = `${startDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      document.getElementById('rec-range-display').innerText = rangeText;
+
+      const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
+      const container = document.getElementById('grid-container');
+
+      let html = `<table class="w-full border-collapse min-w-[600px]"><thead><tr><th class="p-3 border-b text-left text-xs font-semibold text-slate-500 uppercase">Time Slot</th>`;
+      
+      dates.forEach(d => {
+        const dateObj = new Date(d + 'T00:00:00');
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+        const dateFormatted = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        html += `<th class="p-3 border-b text-center border-l"><div class="font-bold text-slate-900">${dayName}</div><div class="text-xs text-slate-500 font-normal">${dateFormatted}</div></th>`;
+      });
+      html += `</tr></thead><tbody>`;
+
+      TIME_SLOTS.forEach(slot => {
+        html += `<tr class="border-b"><td class="p-3 bg-slate-50 font-medium text-sm text-slate-800"><div>${slot.label}</div><div class="text-xs text-slate-400 font-normal">${slot.sub}</div></td>`;
+        dates.forEach(d => {
+          const key = `${d}_${slot.id}`;
+          const isSelected = userSelections[key]?.available || false;
+          const noteVal = userSelections[key]?.note || '';
+
+          html += `
+            <td class="p-2 border-l text-center align-top ${isSelected ? 'bg-indigo-50' : ''}">
+              <button onclick="toggleSlot('${key}')" class="w-full py-2 px-3 rounded-lg border text-xs font-medium transition-all ${isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}">
+                ${isSelected ? '✓ Available' : '+ Add'}
+              </button>
+              ${isSelected ? `
+                <input type="text" placeholder="Add note..." value="${noteVal}" onchange="updateNote('${key}', this.value)" class="mt-2 w-full text-xs p-1.5 border border-indigo-200 rounded bg-white text-slate-700 outline-none focus:ring-1 focus:ring-indigo-500">
+              ` : ''}
+            </td>
+          `;
+        });
+        html += `</tr>`;
+      });
+
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+    }
+
+    function toggleSlot(key) {
+      if (!userSelections[key]) {
+        userSelections[key] = { available: true, note: '' };
+      } else {
+        userSelections[key].available = !userSelections[key].available;
+      }
+      renderRecipientView();
+    }
+
+    function updateNote(key, val) {
+      if (userSelections[key]) {
+        userSelections[key].note = val;
+      }
+    }
+
+    function submitResponse() {
+      const name = document.getElementById('rec-name').value.trim();
+      if (!name) {
+        alert('Please enter your name or family name.');
+        return;
+      }
+
+      const assignedColor = PALETTE[store.responses.length % PALETTE.length];
+      store.responses.push({
+        id: Date.now().toString(),
+        name: name,
+        color: assignedColor,
+        slots: { ...userSelections }
+      });
+      saveStore();
+
+      if (GOOGLE_SHEET_WEBHOOK_URL) {
+        const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
+        dates.forEach(d => {
+          TIME_SLOTS.forEach(slot => {
+            const key = `${d}_${slot.id}`;
+            if (userSelections[key] && userSelections[key].available) {
+              fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  group: currentGroupId,
+                  title: store.settings.title,
+                  name: name,
+                  date: d,
+                  slot: slot.label,
+                  note: userSelections[key].note || ''
+                })
+              }).catch(err => console.error("Webhook error:", err));
+            }
+          });
+        });
+      }
+
+      alert(`Thank you, ${name}! Your availability has been recorded.`);
+      userSelections = {};
+      document.getElementById('rec-name').value = '';
+      renderRecipientView();
+    }
+
+    function renderOwnerDashboard() {
+      document.getElementById('setting-title').value = store.settings.title;
+      document.getElementById('setting-start').value = store.settings.startDate;
+      document.getElementById('setting-end').value = store.settings.endDate;
+
+      const legendContainer = document.getElementById('family-legend');
+      legendContainer.innerHTML = store.responses.map(r => `
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white">
+          <span class="w-3 h-3 rounded-full" style="background-color: ${r.color}"></span>
+          <span>${r.name}</span>
+        </div>
+      `).join('') || '<p class="text-xs text-slate-400">No responses submitted yet for this group.</p>';
+
+      const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
+      const ownerContainer = document.getElementById('owner-grid-container');
+
+      let html = `<table class="w-full border-collapse min-w-[600px]"><thead><tr><th class="p-3 border-b text-left text-xs font-semibold text-slate-500 uppercase">Time Slot</th>`;
+      dates.forEach(d => {
+        const dateObj = new Date(d + 'T00:00:00');
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+        const dateFormatted = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        html += `<th class="p-3 border-b text-center border-l"><div class="font-bold text-slate-900">${dayName}</div><div class="text-xs text-slate-500 font-normal">${dateFormatted}</div></th>`;
+      });
+      html += `</tr></thead><tbody>`;
+
+      TIME_SLOTS.forEach(slot => {
+        html += `<tr class="border-b"><td class="p-3 bg-slate-50 font-medium text-sm text-slate-800"><div>${slot.label}</div><div class="text-xs text-slate-400 font-normal">${slot.sub}</div></td>`;
+        dates.forEach(d => {
+          const key = `${d}_${slot.id}`;
+          const availableFamilies = store.responses.filter(r => r.slots[key] && r.slots[key].available);
+
+          html += `<td class="p-3 border-l align-top"><div class="flex flex-wrap gap-1.5 justify-center">`;
+          if (availableFamilies.length === 0) {
+            html += `<span class="text-xs text-slate-300">—</span>`;
+          } else {
+            availableFamilies.forEach(f => {
+              html += `<span class="px-2 py-1 rounded text-white text-xs font-medium shadow-sm" style="background-color: ${f.color}">${f.name}</span>`;
+            });
+          }
+          html += `</div></td>`;
+        });
+        html += `</tr>`;
+      });
+      html += `</tbody></table>`;
+      ownerContainer.innerHTML = html;
+
+      const notesContainer = document.getElementById('notes-container');
+      let notesHtml = '';
+      store.responses.forEach(r => {
+        Object.keys(r.slots).forEach(key => {
+          const slotObj = r.slots[key];
+          if (slotObj.available && slotObj.note) {
+            const [dateStr, slotId] = key.split('_');
+            const slotName = TIME_SLOTS.find(s => s.id === slotId)?.label || slotId;
+            notesHtml += `
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-start gap-3 text-xs">
+                <span class="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style="background-color: ${r.color}"></span>
+                <div>
+                  <span class="font-bold text-slate-800">${r.name}</span>
+                  <span class="text-slate-400"> • ${dateStr} (${slotName})</span>
+                  <p class="text-slate-600 mt-0.5 font-medium">"${slotObj.note}"</p>
+                </div>
+              </div>
+            `;
+          }
+        });
+      });
+      notesContainer.innerHTML = notesHtml || '<p class="text-xs text-slate-400">No slot notes submitted yet for this group.</p>';
+    }
+
+    function createNewGroupLink() {
+      const gName = document.getElementById('new-group-input').value.trim();
+      if (!gName) {
+        alert('Please enter a group identifier.');
+        return;
+      }
+      const newUrl = `${window.location.origin}${window.location.pathname}?group=${encodeURIComponent(gName)}`;
+      navigator.clipboard.writeText(newUrl);
+      alert(`Copied link for group "${gName}" to clipboard!\n\nLink: ${newUrl}\n\nSwitching to this group now...`);
+      window.location.href = newUrl;
+    }
+
+    function saveOwnerSettings() {
+      const title = document.getElementById('setting-title').value.trim();
+      const start = document.getElementById('setting-start').value;
+      const end = document.getElementById('setting-end').value;
+
+      if (!title || !start || !end) {
+        alert('Please fill in all setting fields.');
+        return;
+      }
+
+      store.settings.title = title;
+      store.settings.startDate = start;
+      store.settings.endDate = end;
+
+      saveStore();
+      alert(`Group settings for ${currentGroupId} updated successfully!`);
+      renderOwnerDashboard();
+    }
+
+    function clearData() {
+      if (confirm(`Are you sure you want to delete all responses for group "${currentGroupId}"?`)) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+      }
+    }
+
+    // Initialize Page Safely on Load
+    document.addEventListener('DOMContentLoaded', () => {
+      renderRecipientView();
+    });
+    renderRecipientView();
+  </script>
+</body>
+</html>
