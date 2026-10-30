@@ -141,7 +141,9 @@
   </main>
 
   <script>
-    const GOOGLE_SHEET_WEBHOOK_URL = ''; // Paste Apps Script Web App URL here when ready
+    // Paste your Google Apps Script Web App URL here!
+    const GOOGLE_SHEET_WEBHOOK_URL = 'PASTE_YOUR_APPS_SCRIPT_URL_HERE';
+
     const TIME_SLOTS = [
       { id: 'morning', label: 'Morning', sub: '8am - 12pm' },
       { id: 'midday', label: 'Mid-Day', sub: '12pm - 4pm' },
@@ -151,38 +153,43 @@
     const PALETTE = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
     const OWNER_PIN = '1235';
 
-    // Parse URL Group Parameter
     const urlParams = new URLSearchParams(window.location.search);
     const currentGroupId = (urlParams.get('group') || 'Default').trim();
-    const STORAGE_KEY = `availability_store_v3_${currentGroupId}`;
+    const STORAGE_KEY = `availability_store_v4_${currentGroupId}`;
 
-    // Safe Store Initialization
     let store = {
       settings: {
         title: `${currentGroupId} Gathering Schedule`,
-        startDate: '2026-10-20',
-        endDate: '2026-10-24'
+        startDate: '2026-12-19',
+        endDate: '2026-12-24'
       },
       responses: []
     };
 
     try {
       const cached = localStorage.getItem(STORAGE_KEY);
-      if (cached) {
-        store = JSON.parse(cached);
-      }
-    } catch(e) {
-      console.warn("Storage parse error, fallback to default", e);
-    }
+      if (cached) store = JSON.parse(cached);
+    } catch(e) {}
 
     let userSelections = {};
     let isOwnerAuthenticated = false;
 
     function saveStore() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch(e) {}
+    }
+
+    async function loadCentralSettings() {
+      if (!GOOGLE_SHEET_WEBHOOK_URL || GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) return;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-      } catch(e) {
-        console.error("Save error", e);
+        const res = await fetch(`${GOOGLE_SHEET_WEBHOOK_URL}?group=${encodeURIComponent(currentGroupId)}`);
+        const data = await res.json();
+        if (data && data.title && data.startDate && data.endDate) {
+          store.settings = data;
+          saveStore();
+          renderRecipientView();
+        }
+      } catch (err) {
+        console.warn("Could not fetch remote settings, using cached/default settings.", err);
       }
     }
 
@@ -233,9 +240,7 @@
           dates.push(curr.toISOString().split('T')[0]);
           curr.setDate(curr.getDate() + 1);
         }
-      } catch(e) {
-        console.error("Date parse error", e);
-      }
+      } catch(e) {}
       return dates.length ? dates : [startDateStr];
     }
 
@@ -297,9 +302,7 @@
     }
 
     function updateNote(key, val) {
-      if (userSelections[key]) {
-        userSelections[key].note = val;
-      }
+      if (userSelections[key]) userSelections[key].note = val;
     }
 
     function submitResponse() {
@@ -318,7 +321,7 @@
       });
       saveStore();
 
-      if (GOOGLE_SHEET_WEBHOOK_URL) {
+      if (GOOGLE_SHEET_WEBHOOK_URL && !GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) {
         const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
         dates.forEach(d => {
           TIME_SLOTS.forEach(slot => {
@@ -443,9 +446,24 @@
       store.settings.title = title;
       store.settings.startDate = start;
       store.settings.endDate = end;
-
       saveStore();
-      alert(`Group settings for ${currentGroupId} updated successfully!`);
+
+      if (GOOGLE_SHEET_WEBHOOK_URL && !GOOGLE_SHEET_WEBHOOK_URL.includes('PASTE_YOUR')) {
+        fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save_settings',
+            group: currentGroupId,
+            title: title,
+            startDate: start,
+            endDate: end
+          })
+        }).catch(err => console.error("Settings sync error:", err));
+      }
+
+      alert(`Settings for ${currentGroupId} saved to central Google Sheet!`);
       renderOwnerDashboard();
     }
 
@@ -456,11 +474,10 @@
       }
     }
 
-    // Initialize Page Safely on Load
     document.addEventListener('DOMContentLoaded', () => {
       renderRecipientView();
+      loadCentralSettings();
     });
-    renderRecipientView();
   </script>
 </body>
 </html>
