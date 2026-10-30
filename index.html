@@ -188,7 +188,7 @@
           renderRecipientView();
         }
       } catch (err) {
-        console.warn("Could not fetch remote settings, using cached/default settings.", err);
+        console.warn("Could not fetch remote settings, using cached settings.", err);
       }
     }
 
@@ -304,6 +304,23 @@
       if (userSelections[key]) userSelections[key].note = val;
     }
 
+    function postToGoogleSheet(payload) {
+      if (!GOOGLE_SHEET_WEBHOOK_URL) return;
+      
+      // Use URLSearchParams to cleanly deliver POST data to Apps Script without CORS preflight triggers
+      const params = new URLSearchParams();
+      params.append('postData', JSON.stringify(payload));
+
+      fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: JSON.stringify(payload)
+      }).catch(err => console.error("Webhook submission error:", err));
+    }
+
     function submitResponse() {
       const name = document.getElementById('rec-name').value.trim();
       if (!name) {
@@ -320,29 +337,22 @@
       });
       saveStore();
 
-      if (GOOGLE_SHEET_WEBHOOK_URL) {
-        const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
-        dates.forEach(d => {
-          TIME_SLOTS.forEach(slot => {
-            const key = `${d}_${slot.id}`;
-            if (userSelections[key] && userSelections[key].available) {
-              fetch(GOOGLE_SHEET_WEBHOOK_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({
-                  group: currentGroupId,
-                  title: store.settings.title,
-                  name: name,
-                  date: d,
-                  slot: slot.label,
-                  note: userSelections[key].note || ''
-                })
-              }).catch(err => console.error("Webhook error:", err));
-            }
-          });
+      const dates = getDatesInRange(store.settings.startDate, store.settings.endDate);
+      dates.forEach(d => {
+        TIME_SLOTS.forEach(slot => {
+          const key = `${d}_${slot.id}`;
+          if (userSelections[key] && userSelections[key].available) {
+            postToGoogleSheet({
+              group: currentGroupId,
+              title: store.settings.title,
+              name: name,
+              date: d,
+              slot: slot.label,
+              note: userSelections[key].note || ''
+            });
+          }
         });
-      }
+      });
 
       alert(`Thank you, ${name}! Your availability has been recorded.`);
       userSelections = {};
@@ -447,20 +457,13 @@
       store.settings.endDate = end;
       saveStore();
 
-      if (GOOGLE_SHEET_WEBHOOK_URL) {
-        fetch(GOOGLE_SHEET_WEBHOOK_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'save_settings',
-            group: currentGroupId,
-            title: title,
-            startDate: start,
-            endDate: end
-          })
-        }).catch(err => console.error("Settings sync error:", err));
-      }
+      postToGoogleSheet({
+        action: 'save_settings',
+        group: currentGroupId,
+        title: title,
+        startDate: start,
+        endDate: end
+      });
 
       alert(`Settings for ${currentGroupId} saved to central Google Sheet!`);
       renderOwnerDashboard();
